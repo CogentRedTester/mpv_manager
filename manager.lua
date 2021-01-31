@@ -1,3 +1,4 @@
+local msg = require "mp.msg"
 local utils = require "mp.utils"
 local legacy = mp.command_native_async == nil
 local config = {}
@@ -55,25 +56,54 @@ function apply_defaults(info)
     return info
 end
 
+local function build_directory_string(dir, repo)
+    local str = ""
+    local contents = utils.readdir(dir)
+    if not contents then return msg.error("could not access local repo:", repo) end
+    for _, item in ipairs(contents) do
+        local path = dir..'/'..item
+        if utils.file_info(path).is_dir then
+            if item ~= ".git" then str = str..'/'..build_directory_string(path, repo)..'\n' end
+        else
+            str = str..(path:sub(repo:len()+2))..'\n'
+        end
+    end
+    return str
+end
+
+local function get_file_list(info)
+    if not info.local_repo then
+        return run({"git", "-C", info.edist, "ls-tree", "-r", "--name-only", "remotes/manager/"..info.branch}).stdout
+    else
+        return build_directory_string(info.local_repo, info.local_repo)
+    end
+end
+
 function update(info)
-    info = apply_defaults(info)
     if not info then return false end
+    info = apply_defaults(info)
 
     local base = nil
     
-    local e_dest = string.match(mp.command_native({"expand-path", info.dest}), "(.-)[/\\]?$")
-    mkdir(e_dest)
+    info.edist = string.match(mp.command_native({"expand-path", info.dest}), "(.-)[/\\]?$")
+    mkdir(info.edist)
     
     local files = {}
     
-    run({"git", "-C", e_dest, "remote", "add", "manager", info.git})
-    run({"git", "-C", e_dest, "remote", "set-url", "manager", info.git})
-    run({"git", "-C", e_dest, "fetch", "manager", info.branch})
+    if not info.local_repo then
+        run({"git", "-C", info.edist, "remote", "add", "manager", info.git})
+        run({"git", "-C", info.edist, "remote", "set-url", "manager", info.git})
+        run({"git", "-C", info.edist, "fetch", "manager", info.branch})
+    else
+        info.local_repo = mp.command_native({"expand-path", info.local_repo})
+    end
     
-    for file in string.gmatch(run({"git", "-C", e_dest, "ls-tree", "-r", "--name-only", "remotes/manager/"..info.branch}).stdout, "[^\r\n]+") do
+    for file in string.gmatch(get_file_list(info), "[^\r\n]+") do
+        print(file)
         local l_file = string.lower(file)
         if info.whitelist == "" or match(l_file, info.whitelist) then
             if info.blacklist == "" or not match(l_file, info.blacklist) then
+                print(file)
                 table.insert(files, file)
                 if base == nil then base = parent(l_file) or "" end
                 while string.match(base, l_file) == nil do
@@ -95,9 +125,18 @@ function update(info)
         for _, file in ipairs(files) do
             local based = string.sub(file, string.len(base)+1)
             local p_based = parent(based)
-            if p_based and not info.flatten_folders then mkdir(e_dest.."/"..p_based) end
-            local c = string.match(run({"git", "-C", e_dest, "--no-pager", "show", "remotes/manager/"..info.branch..":"..file}).stdout, "(.-)[\r\n]?$")
-            local f = io.open(e_dest.."/"..(info.flatten_folders and file:match("[^/]+$") or based), "w")
+            if p_based and not info.flatten_folders then mkdir(info.edist.."/"..p_based) end
+
+            local c = ""
+            if info.local_repo then
+                local source = io.open(info.local_repo..'/'..file)
+                c = source:read("*a")
+                source:close()
+            else
+                c = string.match(run({"git", "-C", info.edist, "--no-pager", "show", "remotes/manager/"..info.branch..":"..file}).stdout, "(.-)[\r\n]?$")
+            end
+
+            local f = io.open(info.edist.."/"..(info.flatten_folders and file:match("[^/]+$") or based), "w")
             f:write(c)
             f:close()
         end
@@ -109,6 +148,7 @@ function update_all()
     for i, info in ipairs(config) do
         print("update"..i, update(info))
     end
+    print("all files updated")
 end
 
 mp.add_key_binding(nil, "manager-update-all", update_all)
