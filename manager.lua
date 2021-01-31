@@ -80,8 +80,8 @@ local function get_file_list(info)
 end
 
 function update(info)
-    if not info then return false end
     info = apply_defaults(info)
+    if not info then return false end
 
     local base = nil
 
@@ -150,7 +150,8 @@ end
 
 function update_all()
     for i, info in ipairs(config) do
-        print("update"..i, update(info))
+        print("updating", (info.git:match("([^/]+)%.git$") or info.git).."...")
+        if not update(info) then msg.error("FAILED") end
     end
     print("all files updated")
 end
