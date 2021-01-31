@@ -99,11 +99,9 @@ function update(info)
     end
     
     for file in string.gmatch(get_file_list(info), "[^\r\n]+") do
-        print(file)
         local l_file = string.lower(file)
         if info.whitelist == "" or match(l_file, info.whitelist) then
             if info.blacklist == "" or not match(l_file, info.blacklist) then
-                print(file)
                 table.insert(files, file)
                 if base == nil then base = parent(l_file) or "" end
                 while string.match(base, l_file) == nil do
