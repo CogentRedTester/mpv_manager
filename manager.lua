@@ -84,20 +84,26 @@ function update(info)
     info = apply_defaults(info)
 
     local base = nil
-    
+
     info.edist = string.match(mp.command_native({"expand-path", info.dest}), "(.-)[/\\]?$")
     mkdir(info.edist)
-    
+
     local files = {}
-    
+
+    if info.local_repo then
+        info.local_repo = mp.command_native({"expand-path", info.local_repo})
+        if not utils.file_info(info.local_repo) then
+            info.local_repo = false
+            msg.warn("local repo not found - falling back to git")
+        end
+    end
+
     if not info.local_repo then
         run({"git", "-C", info.edist, "remote", "add", "manager", info.git})
         run({"git", "-C", info.edist, "remote", "set-url", "manager", info.git})
         run({"git", "-C", info.edist, "fetch", "manager", info.branch})
-    else
-        info.local_repo = mp.command_native({"expand-path", info.local_repo})
     end
-    
+
     for file in string.gmatch(get_file_list(info), "[^\r\n]+") do
         local l_file = string.lower(file)
         if info.whitelist == "" or match(l_file, info.whitelist) then
@@ -112,11 +118,11 @@ function update(info)
             end
         end
     end
-    
+
     if base == nil then return false end
-    
+
     if base ~= "" then base = base.."/" end
-    
+
     if next(files) == nil then
         print("no files matching patterns")
     else
